@@ -1,8 +1,8 @@
 stuaterm: stuaterm.o
-	cc stuaterm.o -o stuaterm
+	cc stuaterm.o -funsigned-char -o stuaterm
 
 stuaterm.o: stuaterm.c
-	cc stuaterm.c -c
+	cc stuaterm.c -c -funsigned-char
 
 clean:
 	rm *.o stuaterm
