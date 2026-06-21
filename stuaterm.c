@@ -6,11 +6,7 @@
 #include <fcntl.h>
 #include <string.h>
 #include <strings.h>
-#include <pthread.h>
-
-
-/*
- */
+#include <poll.h>
 
 /*
   CSTOPB - in control mode (termios-c_cflag.h)
@@ -139,6 +135,101 @@ static void* main_loop_read(void* arg) {
     }
 }
 
+
+
+static void main_loop(int uart_fd) {
+    struct pollfd fds[2];
+    char buf[512], c, r = '\r';
+    int pollret, ret;
+
+    /* fds[0] - for stdin */
+    /* fds[1] - for uart */
+    fds[0].fd = 1;
+    fds[0].events = POLLIN;
+
+    fds[1].fd = uart_fd;
+    fds[1].events = POLLIN;
+
+    while (1) {
+        pollret = poll(fds, 2, 100);
+
+        /* Read smth from input and process */
+        if (pollret != 0 && fds[0].revents != 0) {
+            read(0, &c, 1);
+
+            if (c == '\n')
+                write(uart_fd, &r, 1);
+            write(uart_fd, &c, 1);
+
+            ret = tcdrain(uart_fd);
+        }
+
+        /* Read from uart and write to stdout */
+        if (pollret != 0 && fds[1].revents != 0) {
+            ret = read(uart_fd, buf, 512);
+            write(1, buf, ret);
+        }
+    }
+}
+
+/*
+  Disable canonical mode for input pseudoterminal,
+  so we can read character as soon as they are typed
+ */
+#define stdin_nr 0
+static struct termios stdin_old;
+
+static int prepare_stdin() {
+    struct termios stdin_new;
+    int ret;
+    
+    ret = tcgetattr(0, &stdin_old);
+    stdin_new = stdin_old;
+    stdin_new.c_lflag = ~ICANON & stdin_new.c_lflag;
+
+    /* Immediatly grub and retusn symbol */
+    stdin_new.c_cc[VTIME] = 0; 
+    stdin_new.c_cc[VMIN] = 0;
+
+    ret = tcsetattr(0, TCSANOW, &stdin_new);
+
+    return ret;
+}
+
+static int prepare_uart(int uart_fd) {
+    struct termios f_termios_old, f_termios;
+    int ret;
+        /* Set term settings */
+    ret = tcgetattr(f, &f_termios_old);
+    if (ret == -1) {
+        perror("tcgetattr failed");
+        goto out;
+    }
+
+    f_termios = f_termios_old;
+    cfmakeraw(&f_termios);
+    
+    set_2_stop_bits(&f_termios);
+    set_mark_parity_bit(&f_termios);
+    set_speed(&f_termios);
+    set_8_bit_frame_size(&f_termios);
+
+    ret = tcsetattr(f,  TCSANOW, &f_termios);
+    if (ret == -1) {
+        perror("Failed tcsetattr");
+        goto out;
+    }
+
+ out:
+    return ret;
+}
+
+static void restore_stdin_and_die(int ret) {
+    tcsetattr(f, TCSANOW, &stdin_old);
+
+    _exit(ret);
+}
+
 int main(int argc, char** argv) {
     struct termios f_termios, f_termios_old;
     int ret;
@@ -165,48 +256,28 @@ int main(int argc, char** argv) {
         goto out;
     }
 
-    /* Set term settings */
-    ret = tcgetattr(f, &f_termios_old);
-    if (ret == -1) {
-        perror("tcgetattr failed");
-        goto out;
-    }
-
-    f_termios = f_termios_old;
-    cfmakeraw(&f_termios);
-    
-    set_2_stop_bits(&f_termios);
-    set_mark_parity_bit(&f_termios);
-    set_speed(&f_termios);
-    set_8_bit_frame_size(&f_termios);
-
-    ret = tcsetattr(f,  TCSANOW, &f_termios);
-    if (ret == -1) {
-        perror("Failed tcsetattr");
-        goto out;
-    }    
+    prepare_stdin();
+    prepare_uart(f);
 
     /* Init two threads */
-    pthread_t t1, t2;
-    pthread_create(&t1, NULL, main_loop_write, NULL);
-    pthread_create(&t2, NULL, main_loop_read, NULL);
+    /* pthread_t t1, t2; */
+    /* pthread_create(&t1, NULL, main_loop_write, NULL); */
+    /* pthread_create(&t2, NULL, main_loop_read, NULL); */
 
-    pthread_join(t1, NULL);
+    /* pthread_join(t1, NULL); */
     /* Restore term settings */
-    ret = tcsetattr(f,  TCSANOW /* immediat changes */, &f_termios_old);
-    if (ret == -1) {
-        perror("Failed tcsetattr");
-        goto out;
-    }    
+    /* ret = tcsetattr(f,  TCSANOW /\* immediat changes *\/, &f_termios_old); */
+    /* if (ret == -1) { */
+    /*     perror("Failed tcsetattr"); */
+    /*     goto out; */
+    /* }     */
 
+    main_loop(f);
+    
+    close(f);
+    restore_stdin_and_die(0);
  out:
     close(f);
 
     return 0;
 }
-
-/*
-
- */
-
-
