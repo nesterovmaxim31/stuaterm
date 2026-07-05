@@ -5,8 +5,10 @@
 #include <fcntl.h>
 #include <string.h>
 #include <poll.h>
+#include <signal.h>
 
-static void restore_terms_settings_and_die(int uart_fd, int ret);
+static int uart_fd;
+static void restore_terms_settings_and_die(int ret);
 
 /*
   CSTOPB - in control mode (termios-c_cflag.h)
@@ -43,7 +45,7 @@ static void set_8_bit_frame_size(struct termios* f_termios) {
 #define BUF_SIZE 512
 #define POLL_TIMEOUT 100 /* in milliseconds */
 
-static void main_loop(int uart_fd) {
+static void main_loop() {
     struct pollfd fds[2];
     char buf[BUF_SIZE], c, r = '\r';
     int pollret, ret;
@@ -64,7 +66,7 @@ static void main_loop(int uart_fd) {
             ret = read(STDIN_FILENO, &c, 1);
             if (ret == -1) {
                 perror("read from stdin failed");
-                restore_terms_settings_and_die(uart_fd, ret);
+                restore_terms_settings_and_die(ret);
             }
 
             if (c == '\n')
@@ -72,13 +74,13 @@ static void main_loop(int uart_fd) {
             ret = write(uart_fd, &c, 1);
             if (ret == -1) {
                 perror("write to uart failed");
-                restore_terms_settings_and_die(uart_fd, ret);
+                restore_terms_settings_and_die(ret);
             }
 
             ret = tcdrain(uart_fd);
             if (ret == -1) {
                 perror("tcdrain failed");
-                restore_terms_settings_and_die(uart_fd, ret);
+                restore_terms_settings_and_die(ret);
             }
         }
 
@@ -86,19 +88,19 @@ static void main_loop(int uart_fd) {
         if (pollret != 0 && fds[1].revents != 0) {
             if (fds[1].revents & (POLLHUP | POLLERR | POLLNVAL)) {
                 perror("uart is broken or disconnected");
-                restore_terms_settings_and_die(uart_fd, ret);
+                restore_terms_settings_and_die(ret);
             }
             
             ret = read(uart_fd, buf, BUF_SIZE);
             if (ret == -1) {
                 perror("read from uart failed");
-                restore_terms_settings_and_die(uart_fd, ret);
+                restore_terms_settings_and_die(ret);
             }
             
             ret = write(STDOUT_FILENO, buf, ret);
             if (ret == -1) {
                 perror("write to stdout failed");
-                restore_terms_settings_and_die(uart_fd, ret);
+                restore_terms_settings_and_die(ret);
             }
         }
     }
@@ -114,23 +116,32 @@ static int prepare_stdin() {
     int ret;
     
     ret = tcgetattr(STDIN_FILENO, &stdin_old);
+    if (ret != 0) {
+        perror("STDIN preparation failed");
+        restore_terms_settings_and_die(-1);
+    }
+
     stdin_new = stdin_old;
     stdin_new.c_lflag = ~ICANON & stdin_new.c_lflag;
 
     /*
-      Immediately grub and available symbol to process it
+      Immediately grub any available symbol to process it
       (see 'info libc' for uncanonical mode)
      */
     stdin_new.c_cc[VTIME] = 0; 
     stdin_new.c_cc[VMIN] = 0;
 
     ret = tcsetattr(STDIN_FILENO, TCSANOW, &stdin_new);
+    if (ret != 0) {
+        perror("STDIN preparation failed");
+        restore_terms_settings_and_die(-1);
+    }
 
     return ret;
 }
 
 static struct termios uart_termios_old;
-static void prepare_uart(int uart_fd) {
+static void prepare_uart() {
     struct termios uart_termios;
     int ret;
 
@@ -138,7 +149,7 @@ static void prepare_uart(int uart_fd) {
     ret = tcgetattr(uart_fd, &uart_termios_old);
     if (ret == -1) {
         perror("tcgetattr failed on uart");
-        restore_terms_settings_and_die(uart_fd, ret);
+        restore_terms_settings_and_die(ret);
     }
 
     uart_termios = uart_termios_old;
@@ -155,22 +166,22 @@ static void prepare_uart(int uart_fd) {
     ret = tcsetattr(uart_fd, TCSANOW, &uart_termios);
     if (ret == -1) {
         perror("tcsetattr failed on uart");
-        restore_terms_settings_and_die(uart_fd, ret);
+        restore_terms_settings_and_die(ret);
     }
 }
 
-static void restore_terms_settings_and_die(int uart_fd, int ret) {
+static void restore_terms_settings_and_die(int ret) {
     tcsetattr(STDIN_FILENO, TCSANOW, &stdin_old);
 
-    if (uart_fd != -1)
+    if (uart_fd != -1) {
         tcsetattr(uart_fd, TCSANOW, &uart_termios_old);
+        close(uart_fd);
+    }
 
     _exit(ret);
 }
 
 static int open_uart(const char* path) {
-    int uart_fd;
-
     uart_fd = open(path, O_RDWR | O_NOCTTY | O_NDELAY | O_NONBLOCK);
 
     if (uart_fd == -1) {
@@ -179,14 +190,35 @@ static int open_uart(const char* path) {
     }
 }
 
+static void sigint_handler(int sign) {
+    puts("Exit stuaterm");
+    restore_terms_settings_and_die(0);
+}
+
+static void register_sigint_handler() {
+    struct sigaction sa;
+
+    sa.sa_handler = sigint_handler;
+    sigemptyset(&sa.sa_mask);
+
+    if (sigaction(SIGINT, &sa, NULL) == -1) {
+        perror("Failed to register Ctrl-C handler");
+        _exit(-1);
+    }        
+}
+
 int main(int argc, char** argv) {
-    int ret, uart_fd;
+    uart_fd = -1;
  
     /* open test */
     if (argc < 2) {
         puts("No terminal name specified");
         return -1;
     }
+
+    register_sigint_handler();
+
+    prepare_stdin();
 
     uart_fd = open_uart(argv[1]);
     if (uart_fd == -1) {
@@ -198,18 +230,10 @@ int main(int argc, char** argv) {
     
     if (!isatty(uart_fd)) {
         printf("%s isn't refered to a terminal", argv[1]);
-        goto out;
+        restore_terms_settings_and_die(-1);
     }
 
-    prepare_stdin();
-    prepare_uart(uart_fd);
+    prepare_uart();
 
-    main_loop(uart_fd);
-    
-    restore_terms_settings_and_die(uart_fd, 0);
-
- out:
-    close(uart_fd);
-
-    return -1;
+    main_loop();
 }
