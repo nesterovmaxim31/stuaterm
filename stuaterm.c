@@ -133,8 +133,7 @@ static int prepare_stdin() {
 }
 
 static struct termios uart_termios_old;
-static void prepare_uart() {
-    struct termios uart_termios;
+static void prepare_uart(struct termios* uart_termios) {
     int ret;
 
     /* Set term settings */
@@ -331,20 +330,28 @@ static void set_paritybit(struct termios* uart_termios, const char* optarg) {
     }    
 }
 
+/* Find symbol #, and everythings after this symbol is erased (# is replaced
+   with \0)
+*/
+static void erase_comments(char* line) {
+    char* commsign = strchr(line, '#');
+    *commsign = '\0';
+}
+
 /*
   Config file looks like (spaces can be in random places):
   speed=<some speed>
   stopbit=<stop bit type>
   paritybit = <parity bit type>
 
-  We should parse file line by line, then each line break with strtok
+  We should parse file line by line, then each line break with strtok_r
 
   If function return -1, then file doesn't exist. If some other error
   with parsing or file opening function calls restore_terms_settings_and_die
 */
 static int parse_config_file(struct termios* uart_termios, const char* path) {
     FILE* f; /* I so hate this ugly F I L E */
-    char* line;
+    char* line = NULL, *saveptr, *key, *value;
     ssize_t line_size;
     size_t line_capacity;
 
@@ -362,8 +369,42 @@ static int parse_config_file(struct termios* uart_termios, const char* path) {
     }
     /* File is opened successfully, try to parse it */
     else {
-        line_size = getline(&line, &line_capacity, f);
+        do {
+            line_size = getline(&line, &line_capacity, f);
+            if (line_size == -1) {
+                free(line);
+                perror("Config file parsing failed");
+                restore_terms_settings_and_die(-1);
+            }
+
+            erase_comments(line);
+
+            key = strtok_r(line, "= \n", &saveptr);
+            if (key == NULL)
+                continue; /* get new line */
+
+            value = strtok_r(NULL, "= \n", &saveptr);
+            if (value == NULL) {
+                printf("No value is set in config file for key '%s'\n", key);
+                free(line);
+                restore_terms_settings_and_die(-1);
+            }            
+
+            if (strcmp(key, "speed") == 0) {
+                set_speed(uart_termios, value);
+            }
+            else if (strcmp(key, "stopbit") == 0) {
+                set_stopbit(uart_termios, value);
+            }
+            else if (strcmp(key, "paritybit") == 0) {
+                set_paritybit(uart_termios, value);
+            }
+        } while (line_size != -1);
+
+        free(line);
     }
+
+    return 0;
 }
 
 /*
@@ -435,6 +476,7 @@ static int parse_args(const int argc, const char** argv,
 */
 int main(int argc, char** argv) {
     struct termios uart_termios;
+    int ret;
     
     uart_fd = -1;
  
@@ -461,7 +503,19 @@ int main(int argc, char** argv) {
         restore_terms_settings_and_die(-1);
     }
 
-    parse_args(argc, argv, &uart_termios);
+    ret = parse_args(argc, argv, &uart_termios);
+    if (ret == -1) {/* No arguments was provided, so try to open
+                      some standart config files */
+        ret = parse_config_file(&uart_termios, "~/.config/.stuaterm.conf");
+        if (ret == -1) { /* Try another place */
+            ret = parse_config_file(&uart_termios, "~/.stuaterm.conf");
+            if (ret == -1) {
+                printf("No config arguments were provide. stuaterm will \
+ works with current settings on uart device. (You can check them with stty)");
+            }
+        }
+    }
+
     prepare_uart(uart_termios);
 
     main_loop();
