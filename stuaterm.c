@@ -6,6 +6,8 @@
 #include <string.h>
 #include <poll.h>
 #include <signal.h>
+#include <errno.h>
+#include <getopt.h>
 
 static int uart_fd;
 static void restore_terms_settings_and_die(int ret);
@@ -136,25 +138,17 @@ static struct termios uart_termios_old;
 static void prepare_uart(struct termios* uart_termios) {
     int ret;
 
-    /* Set term settings */
-    ret = tcgetattr(uart_fd, &uart_termios_old);
-    if (ret == -1) {
-        perror("tcgetattr failed on uart");
-        restore_terms_settings_and_die(ret);
-    }
-
-    uart_termios = uart_termios_old;
-    cfmakeraw(&uart_termios);
+    cfmakeraw(uart_termios);
     
-    set_2_stop_bits(&uart_termios);
-    set_mark_parity_bit(&uart_termios);
-    set_speed(&uart_termios);
-    set_8_bit_frame_size(&uart_termios);
+    //    set_2_stop_bits(&uart_termios);
+    //    set_mark_parity_bit(&uart_termios);
+    //    set_speed(&uart_termios);
+    set_8_bit_frame_size(uart_termios);
 
-    uart_termios.c_cc[VTIME] = 0;
-    uart_termios.c_cc[VMIN] = 0;
+    uart_termios->c_cc[VTIME] = 0;
+    uart_termios->c_cc[VMIN] = 0;
 
-    ret = tcsetattr(uart_fd, TCSANOW, &uart_termios);
+    ret = tcsetattr(uart_fd, TCSANOW, uart_termios);
     if (ret == -1) {
         perror("tcsetattr failed on uart");
         restore_terms_settings_and_die(ret);
@@ -274,7 +268,8 @@ static void set_speed(struct termios* uart_termios, const char* optarg) {
         cfsetospeed(uart_termios, B38400);
         return;
     default:
-        printf("Speed value: %d isn't supported. Check libc documentation");
+        printf("Speed value: %d isn't supported. Check libc documentation", \
+               speed);
         restore_terms_settings_and_die(-1);
     }
 }
@@ -419,9 +414,9 @@ static int parse_config_file(struct termios* uart_termios, const char* path) {
   place)
   0 - some arguments was provided
  */
-static int parse_args(const int argc, const char** argv,
+static int parse_args(const int argc, char** argv,
                        struct termios* uart_termios) {
-    int opt, ret, flag = 0;
+    int opt, ret, flag = 0, l;
 
     static struct option long_options[] = {
         {"config",    required_argument, NULL, 'c'},
@@ -503,6 +498,16 @@ int main(int argc, char** argv) {
         restore_terms_settings_and_die(-1);
     }
 
+    /* Set term settings */
+    ret = tcgetattr(uart_fd, &uart_termios_old);
+    if (ret == -1) {
+        perror("tcgetattr failed on uart");
+        restore_terms_settings_and_die(ret);
+    }
+
+    uart_termios = uart_termios_old;
+    
+
     ret = parse_args(argc, argv, &uart_termios);
     if (ret == -1) {/* No arguments was provided, so try to open
                       some standart config files */
@@ -516,7 +521,7 @@ int main(int argc, char** argv) {
         }
     }
 
-    prepare_uart(uart_termios);
+    prepare_uart(&uart_termios);
 
     main_loop();
 }
