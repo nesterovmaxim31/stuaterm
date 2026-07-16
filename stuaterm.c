@@ -24,15 +24,7 @@ static void set_2_stop_bits(struct termios* f_termios) {
 static void set_mark_parity_bit(struct termios* f_termios) {
     f_termios->c_cflag = f_termios->c_cflag | PARENB;
     f_termios->c_cflag = f_termios->c_cflag | PARODD;
-    f_termios->c_cflag = f_termios->c_cflag | CMSPAR;
-}
-
-/*
-  B4800 - our baud rate
- */
-static void set_speed(struct termios* f_termios) {
-    cfsetispeed(f_termios, B4800);
-    cfsetospeed(f_termios, B4800);
+    f_termios->c_cflag = f_termios->c_cflag | CMSPAR; 
 }
 
 /*
@@ -207,7 +199,243 @@ static void register_sigint_handler() {
     }        
 }
 
+/* Parse speed value from optarg or config file and set value in
+   termios struct */
+static void set_speed(struct termios* uart_termios, const char* optarg) {
+    int speed = atoi(optarg);
+    if (speed != 0) {
+        printf("Speed value: %s is unrecognized", optarg);
+        perror("");
+        restore_terms_settings_and_die(speed);
+    }
+
+    switch (speed) {
+    case 0:
+        cfsetispeed(uart_termios, B0);
+        cfsetospeed(uart_termios, B0);
+        return;
+    case 50:
+        cfsetispeed(uart_termios, B50);
+        cfsetospeed(uart_termios, B50);
+        return;
+    case 75:
+        cfsetispeed(uart_termios, B75);
+        cfsetospeed(uart_termios, B75);
+        return;
+    case 110:
+        cfsetispeed(uart_termios, B110);
+        cfsetospeed(uart_termios, B110);
+        return;
+    case 134:
+        cfsetispeed(uart_termios, B134);
+        cfsetospeed(uart_termios, B134);
+        return;
+    case 150:
+        cfsetispeed(uart_termios, B150);
+        cfsetospeed(uart_termios, B150);
+        return;
+    case 200:
+        cfsetispeed(uart_termios, B200);
+        cfsetospeed(uart_termios, B200);
+        return;
+    case 300:
+        cfsetispeed(uart_termios, B300);
+        cfsetospeed(uart_termios, B300);
+        return;
+    case 600:
+        cfsetispeed(uart_termios, B600);
+        cfsetospeed(uart_termios, B600);
+        return;
+    case 1200:
+        cfsetispeed(uart_termios, B1200);
+        cfsetospeed(uart_termios, B1200);
+        return;
+    case 1800:
+        cfsetispeed(uart_termios, B1800);
+        cfsetospeed(uart_termios, B1800);
+        return;
+    case 2400:
+        cfsetispeed(uart_termios, B2400);
+        cfsetospeed(uart_termios, B2400);
+        return;
+    case 4800:
+        cfsetispeed(uart_termios, B4800);
+        cfsetospeed(uart_termios, B4800);
+        return;
+    case 9600:
+        cfsetispeed(uart_termios, B9600);
+        cfsetospeed(uart_termios, B9600);
+        return;
+    case 19200:
+        cfsetispeed(uart_termios, B19200);
+        cfsetospeed(uart_termios, B19200);
+        return;
+    case 38400:
+        cfsetispeed(uart_termios, B38400);
+        cfsetospeed(uart_termios, B38400);
+        return;
+    default:
+        printf("Speed value: %d isn't supported. Check libc documentation");
+        restore_terms_settings_and_die(-1);
+    }
+}
+
+/* Parse stopbit value from optarg or config file and set value in
+   termios struct */
+static void set_stopbit(struct termios* uart_termios, const char* optarg) {
+    if (strncmp("one", optarg, 3) == 0) {
+        uart_termios->c_cflag = uart_termios->c_cflag ^ (~CSTOPB);/* сложно */
+        /* ^ is XOR by the way */
+    }
+    /* If CSTOPB is set, two stop bits are used */
+    else if (strncmp("two", optarg, 3) == 0) {
+        uart_termios->c_cflag = uart_termios->c_cflag | CSTOPB;
+    }
+    else {
+        printf("Stop bit: %s is unrecognized\n", optarg);
+        restore_terms_settings_and_die(-1);
+    }
+
+}
+
+/* Parse paritybit value from optarg or config file and set value in
+   termios struct */
+static void set_paritybit(struct termios* uart_termios, const char* optarg) {
+    /* If PARENB is not set, than no parity bit generate and check */
+    if (strncmp("none", optarg, 4) == 0)  {
+        uart_termios->c_cflag = uart_termios->c_cflag ^ (~PARENB);
+    }
+    /* If PARODD is set, than odd parity is used  */
+    else if (strncmp("odd", optarg, 3) == 0) {
+        uart_termios->c_cflag = uart_termios->c_cflag | PARENB;
+        uart_termios->c_cflag = uart_termios->c_cflag | PARODD;
+    }
+    else if (strncmp("even", optarg, 4) == 0) {
+        uart_termios->c_cflag = uart_termios->c_cflag | PARENB;
+        uart_termios->c_cflag = uart_termios->c_cflag ^ (~PARODD);
+    }
+    /* If CMSPAR is set, than mark parity is used */
+    else if (strncmp("mark", optarg, 4) == 0) {
+        uart_termios->c_cflag = uart_termios->c_cflag | PARENB;
+        uart_termios->c_cflag = uart_termios->c_cflag | PARODD;
+        uart_termios->c_cflag = uart_termios->c_cflag | CMSPAR; 
+    }
+    else if (strncmp("space", optarg, 5) == 0) {
+        uart_termios->c_cflag = uart_termios->c_cflag | PARENB;
+        uart_termios->c_cflag = uart_termios->c_cflag | PARODD;
+        uart_termios->c_cflag = uart_termios->c_cflag ^ (~CMSPAR); 
+    }
+    else {
+        printf("Parity bit type: %s is unrecognized\n", optarg);
+        restore_terms_settings_and_die(-1);
+    }    
+}
+
+/*
+  Config file looks like (spaces can be in random places):
+  speed=<some speed>
+  stopbit=<stop bit type>
+  paritybit = <parity bit type>
+
+  We should parse file line by line, then each line break with strtok
+
+  If function return -1, then file doesn't exist. If some other error
+  with parsing or file opening function calls restore_terms_settings_and_die
+*/
+static int parse_config_file(struct termios* uart_termios, const char* path) {
+    FILE* f; /* I so hate this ugly F I L E */
+    char* line;
+    ssize_t line_size;
+    size_t line_capacity;
+
+    f = fopen(path, "r");
+    if (f == NULL) {
+        /* File doesn't exist */
+        if (errno == ENOENT) {
+            return -1;
+        }
+        else {
+            printf("Failed to open file: %s", path);
+            perror("");
+            restore_terms_settings_and_die(errno);
+        }
+    }
+    /* File is opened successfully, try to parse it */
+    else {
+        line_size = getline(&line, &line_capacity, f);
+    }
+}
+
+/*
+  Arguments:
+  --config    (-c) (path to config file)
+  --speed     (-s) (see libc for available values)
+  --stopbit   (-b) (one, two)
+  --paritybit (-p) (none, odd, even, mark, space)
+
+  return:
+  -1 - no arguments was provied (so we try to open config files on standart
+  place)
+  0 - some arguments was provided
+ */
+static int parse_args(const int argc, const char** argv,
+                       struct termios* uart_termios) {
+    int opt, ret, flag = 0;
+
+    static struct option long_options[] = {
+        {"config",    required_argument, NULL, 'c'},
+        {"speed",     required_argument, NULL, 's'},
+        {"stopbit",   required_argument, NULL, 'b'},
+        {"paritybit", required_argument, NULL, 'p'},
+        {0, 0, 0, 0}
+    };
+
+    /* May be argv should be argv + 1? */
+    while ((opt = getopt_long(argc, argv, "c:s:b:p:", long_options,
+                              &l)) != -1) {
+        flag = 1; /* So we get some argument */
+
+        switch (opt) {
+        case 'c':
+            /* If user's file doesn't exist -> exit with error  */
+            ret = parse_config_file(uart_termios, optarg);
+            if (ret == -1) {
+                printf("File: %s doesn't exist", optarg);
+                restore_terms_settings_and_die(-1);
+            }
+            break;
+        case 's':
+            set_speed(uart_termios, optarg);
+            break;
+
+        case 'b':
+            set_stopbit(uart_termios, optarg);
+            break;
+
+        case 'p':
+            set_paritybit(uart_termios, optarg);
+            break;
+            
+        }
+    }
+
+    return flag ? 0 : -1;
+}
+
+/*
+  Firstly of all we parse arguments, if we get -c then parse this file.
+  If we have not enough arguments we use settings, that was installed
+  on uart previously, or by default. (We we have argument -c with
+  other arguments it can be dangerous).
+
+  Secondly, if no arguments are provided at all, we try to open
+  config files on standart places:
+  ~/.config/.stuaterm.conf
+  ~/.stuaterm.conf
+*/
 int main(int argc, char** argv) {
+    struct termios uart_termios;
+    
     uart_fd = -1;
  
     /* open test */
@@ -233,7 +461,8 @@ int main(int argc, char** argv) {
         restore_terms_settings_and_die(-1);
     }
 
-    prepare_uart();
+    parse_args(argc, argv, &uart_termios);
+    prepare_uart(uart_termios);
 
     main_loop();
 }

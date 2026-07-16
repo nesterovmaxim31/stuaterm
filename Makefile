@@ -5,4 +5,4 @@ stuaterm.o: stuaterm.c
 	cc stuaterm.c -c -funsigned-char -Wall -O0 -ggdb
 
 clean:
-	rm *.o stuaterm
+	@rm *.o stuaterm
