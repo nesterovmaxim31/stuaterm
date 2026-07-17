@@ -12,26 +12,6 @@
 static int uart_fd;
 static void restore_terms_settings_and_die(int ret);
 
-/*
-  CSTOPB - in control mode (termios-c_cflag.h)
- */
-static void set_2_stop_bits(struct termios* f_termios) {
-    f_termios->c_cflag = f_termios->c_cflag | CSTOPB;
-}
-
-/*
-  PARENB - enable generation and detection of parity bit
-  CMSPAR - mark parity bit
- */
-static void set_mark_parity_bit(struct termios* f_termios) {
-    f_termios->c_cflag = f_termios->c_cflag | PARENB;
-    f_termios->c_cflag = f_termios->c_cflag | PARODD;
-    f_termios->c_cflag = f_termios->c_cflag | CMSPAR; 
-}
-
-/*
-  
- */
 static void set_8_bit_frame_size(struct termios* f_termios) {
     f_termios->c_cflag = f_termios->c_cflag | CS8;
 }
@@ -138,8 +118,6 @@ static struct termios uart_termios_old;
 static void prepare_uart(struct termios* uart_termios) {
     int ret;
 
-    cfmakeraw(uart_termios);
-    
     //    set_2_stop_bits(&uart_termios);
     //    set_mark_parity_bit(&uart_termios);
     //    set_speed(&uart_termios);
@@ -194,10 +172,11 @@ static void register_sigint_handler() {
 
 /* Parse speed value from optarg or config file and set value in
    termios struct */
-static void set_speed(struct termios* uart_termios, const char* optarg) {
+static void set_speed(struct termios* uart_termios,
+                      const char* optarg) {
     int speed = atoi(optarg);
-    if (speed != 0) {
-        printf("Speed value: %s is unrecognized", optarg);
+    if (speed == 0) {
+        printf("Speed value: %s is unrecognized\n", optarg);
         perror("");
         restore_terms_settings_and_die(speed);
     }
@@ -276,7 +255,8 @@ static void set_speed(struct termios* uart_termios, const char* optarg) {
 
 /* Parse stopbit value from optarg or config file and set value in
    termios struct */
-static void set_stopbit(struct termios* uart_termios, const char* optarg) {
+static void set_stopbit(struct termios* uart_termios,
+                        const char* optarg) {
     if (strncmp("one", optarg, 3) == 0) {
         uart_termios->c_cflag = uart_termios->c_cflag ^ (~CSTOPB);/* сложно */
         /* ^ is XOR by the way */
@@ -294,7 +274,8 @@ static void set_stopbit(struct termios* uart_termios, const char* optarg) {
 
 /* Parse paritybit value from optarg or config file and set value in
    termios struct */
-static void set_paritybit(struct termios* uart_termios, const char* optarg) {
+static void set_paritybit(struct termios* uart_termios,
+                          const char* optarg) {
     /* If PARENB is not set, than no parity bit generate and check */
     if (strncmp("none", optarg, 4) == 0)  {
         uart_termios->c_cflag = uart_termios->c_cflag ^ (~PARENB);
@@ -325,12 +306,14 @@ static void set_paritybit(struct termios* uart_termios, const char* optarg) {
     }    
 }
 
-/* Find symbol #, and everythings after this symbol is erased (# is replaced
-   with \0)
+/* Find symbol #, and everythings after this symbol is erased
+   (# is replaced with \0)
 */
 static void erase_comments(char* line) {
     char* commsign = strchr(line, '#');
-    *commsign = '\0';
+
+    if (commsign != NULL)
+        *commsign = '\0';
 }
 
 /*
@@ -344,7 +327,8 @@ static void erase_comments(char* line) {
   If function return -1, then file doesn't exist. If some other error
   with parsing or file opening function calls restore_terms_settings_and_die
 */
-static int parse_config_file(struct termios* uart_termios, const char* path) {
+static int parse_config_file(struct termios* uart_termios,
+                             const char* path) {
     FILE* f; /* I so hate this ugly F I L E */
     char* line = NULL, *saveptr, *key, *value;
     ssize_t line_size;
@@ -367,6 +351,7 @@ static int parse_config_file(struct termios* uart_termios, const char* path) {
         do {
             line_size = getline(&line, &line_capacity, f);
             if (line_size == -1) {
+                break;
                 free(line);
                 perror("Config file parsing failed");
                 restore_terms_settings_and_die(-1);
@@ -399,6 +384,8 @@ static int parse_config_file(struct termios* uart_termios, const char* path) {
         free(line);
     }
 
+    fclose(f);
+    
     return 0;
 }
 
@@ -410,8 +397,8 @@ static int parse_config_file(struct termios* uart_termios, const char* path) {
   --paritybit (-p) (none, odd, even, mark, space)
 
   return:
-  -1 - no arguments was provied (so we try to open config files on standart
-  place)
+  -1 - no arguments was provied (so we try to open config files on
+  standart place)
   0 - some arguments was provided
  */
 static int parse_args(const int argc, char** argv,
@@ -506,9 +493,11 @@ int main(int argc, char** argv) {
     }
 
     uart_termios = uart_termios_old;
-    
+
+    cfmakeraw(&uart_termios);
 
     ret = parse_args(argc, argv, &uart_termios);
+    printf("parsed %d\n", ret);
     if (ret == -1) {/* No arguments was provided, so try to open
                       some standart config files */
         ret = parse_config_file(&uart_termios, "~/.config/.stuaterm.conf");
