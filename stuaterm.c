@@ -29,10 +29,6 @@
 static int uart_fd;
 static void restore_terms_settings_and_die(int ret);
 
-static void set_8_bit_frame_size(struct termios* f_termios) {
-    f_termios->c_cflag = f_termios->c_cflag | CS8;
-}
-
 #define BUF_SIZE 512
 #define POLL_TIMEOUT 100 /* in milliseconds */
 
@@ -134,11 +130,6 @@ static int prepare_stdin() {
 static struct termios uart_termios_old;
 static void prepare_uart(struct termios* uart_termios) {
     int ret;
-
-    //    set_2_stop_bits(&uart_termios);
-    //    set_mark_parity_bit(&uart_termios);
-    //    set_speed(&uart_termios);
-    set_8_bit_frame_size(uart_termios);
 
     uart_termios->c_cc[VTIME] = 0;
     uart_termios->c_cc[VMIN] = 0;
@@ -325,6 +316,45 @@ static void set_paritybit(struct termios* uart_termios,
     }    
 }
 
+/* Set amount of data bits in frame: 5, 6, 7 or 8 bits.
+   Currently in glibc other amount of data bits aren't avalaible.
+   If fact it sets how many bits is reserved in frame for
+   data (payload).
+*/
+static void set_databits(struct termios* uart_termios,
+                          const char* optarg) {
+
+    int size = atoi(optarg);
+    if (size == 0) {
+        printf("Data bits: %s is unrecognized", optarg);
+        perror("");
+        restore_terms_settings_and_die(-1);
+    }
+
+    /* Clear CSIZE field */
+    uart_termios->c_cflag = uart_termios->c_cflag & (~CSIZE);
+
+    switch (size) {
+    case 5:
+        uart_termios->c_cflag = uart_termios->c_cflag | CS5;
+        break;
+
+    case 6:
+        uart_termios->c_cflag = uart_termios->c_cflag | CS6;
+        break;
+
+    case 7:
+        uart_termios->c_cflag = uart_termios->c_cflag | CS7;
+        break;
+    case 8:
+        uart_termios->c_cflag = uart_termios->c_cflag | CS8;
+        break;
+    default:
+        printf("%d data bits is unsupported\n", size);
+        restore_terms_settings_and_die(-1);
+    }
+}
+
 /* Find symbol #, and everythings after this symbol is erased
    (# is replaced with \0)
 */
@@ -398,6 +428,9 @@ static int parse_config_file(struct termios* uart_termios,
             else if (strcmp(key, "paritybit") == 0) {
                 set_paritybit(uart_termios, value);
             }
+            else if (strcmp(key, "databits") == 0) {
+                set_databits(uart_termios, value);
+            }
         } while (line_size != -1);
 
         free(line);
@@ -410,10 +443,16 @@ static int parse_config_file(struct termios* uart_termios,
 
 /*
   Arguments:
-  --config    (-c) (path to config file)
-  --speed     (-s) (see libc for available values)
-  --stopbit   (-b) (one, two)
-  --paritybit (-p) (none, odd, even, mark, space)
+  --config           (-c) (path to config file)
+  --speed            (-s) (see libc for available values)
+  --stopbit          (-b) (one, two)
+  --paritybit        (-p) (none, odd, even, mark, space)
+  --databits         (-d) (5, 6, 7, 8)
+  --inputparitycheck (-i) (disable, enable_ignore, enable_mark)
+  --replacenlinput   (-n) (some set of character, for example - \r\n)
+  --replacenloutput  (-o) (some set of character)
+  --replacecrinput   (-r) (some set of character)
+  --replacecroutput  (-t) (some set of character)
 
   return:
   -1 - no arguments was provied (so we try to open config files on
@@ -425,13 +464,16 @@ static int parse_args(const int argc, char** argv,
     int opt, ret, flag = 0, l;
 
     static struct option long_options[] = {
-        {"config",    required_argument, NULL, 'c'},
-        {"speed",     required_argument, NULL, 's'},
-        {"stopbit",   required_argument, NULL, 'b'},
-        {"paritybit", required_argument, NULL, 'p'},
+        {"config",           required_argument, NULL, 'c'},
+        {"speed",            required_argument, NULL, 's'},
+        {"stopbit",          required_argument, NULL, 'b'},
+        {"paritybit",        required_argument, NULL, 'p'},
+        {"databits",         required_argument, NULL, 'd'},
         {0, 0, 0, 0}
     };
 
+    /* We believe that getopt_long checked, that optarg is given by
+       user (in long_optiongs 'required_argument' is used) */
     while ((opt = getopt_long(argc, argv, "c:s:b:p:", long_options,
                               &l)) != -1) {
         flag = 1; /* So we get some argument */
@@ -456,7 +498,9 @@ static int parse_args(const int argc, char** argv,
         case 'p':
             set_paritybit(uart_termios, optarg);
             break;
-            
+        case 'd':
+            set_databits(uart_termios, optarg);
+            break;
         }
     }
 
@@ -512,6 +556,7 @@ int main(int argc, char** argv) {
 
     uart_termios = uart_termios_old;
 
+    /* Clear all settings */
     cfmakeraw(&uart_termios);
 
     ret = parse_args(argc, argv, &uart_termios);
@@ -532,3 +577,11 @@ int main(int argc, char** argv) {
 
     main_loop();
 }
+
+/*
+  TODO:
+  1) man page
+  2) Some build system (nob for example)
+  3) Add README
+  4) Add frame size parametre and some other.
+*/
