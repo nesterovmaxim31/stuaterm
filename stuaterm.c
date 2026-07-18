@@ -275,8 +275,7 @@ static void set_speed(struct termios* uart_termios,
 static void set_stopbit(struct termios* uart_termios,
                         const char* optarg) {
     if (strncmp("one", optarg, 3) == 0) {
-        uart_termios->c_cflag = uart_termios->c_cflag ^ (~CSTOPB);/* сложно */
-        /* ^ is XOR by the way */
+        uart_termios->c_cflag = uart_termios->c_cflag & (~CSTOPB);/* сложно */
     }
     /* If CSTOPB is set, two stop bits are used */
     else if (strncmp("two", optarg, 3) == 0) {
@@ -433,7 +432,6 @@ static int parse_args(const int argc, char** argv,
         {0, 0, 0, 0}
     };
 
-    /* May be argv should be argv + 1? */
     while ((opt = getopt_long(argc, argv, "c:s:b:p:", long_options,
                               &l)) != -1) {
         flag = 1; /* So we get some argument */
@@ -466,9 +464,9 @@ static int parse_args(const int argc, char** argv,
 }
 
 /*
-  Firstly of all we parse arguments, if we get -c then parse this file.
+  Firstly of all we parse arguments, if we get -c then parse config file.
   If we have not enough arguments we use settings, that was installed
-  on uart previously, or by default. (We we have argument -c with
+  on uart previously, or by default. (If we have argument -c with
   other arguments it can be dangerous).
 
   Secondly, if no arguments are provided at all, we try to open
