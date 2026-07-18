@@ -295,16 +295,19 @@ static void set_paritybit(struct termios* uart_termios,
                           const char* optarg) {
     /* If PARENB is not set, than no parity bit generate and check */
     if (strncmp("none", optarg, 4) == 0)  {
-        uart_termios->c_cflag = uart_termios->c_cflag ^ (~PARENB);
+        uart_termios->c_cflag = uart_termios->c_cflag & (~PARENB);
     }
     /* If PARODD is set, than odd parity is used  */
     else if (strncmp("odd", optarg, 3) == 0) {
         uart_termios->c_cflag = uart_termios->c_cflag | PARENB;
         uart_termios->c_cflag = uart_termios->c_cflag | PARODD;
+        /* disable stick parity bit */
+        uart_termios->c_cflag = uart_termios->c_cflag & (~CMSPAR); 
     }
     else if (strncmp("even", optarg, 4) == 0) {
         uart_termios->c_cflag = uart_termios->c_cflag | PARENB;
-        uart_termios->c_cflag = uart_termios->c_cflag ^ (~PARODD);
+        uart_termios->c_cflag = uart_termios->c_cflag & (~PARODD);
+        uart_termios->c_cflag = uart_termios->c_cflag & (~CMSPAR); 
     }
     /* If CMSPAR is set, than mark parity is used */
     else if (strncmp("mark", optarg, 4) == 0) {
@@ -314,8 +317,8 @@ static void set_paritybit(struct termios* uart_termios,
     }
     else if (strncmp("space", optarg, 5) == 0) {
         uart_termios->c_cflag = uart_termios->c_cflag | PARENB;
-        uart_termios->c_cflag = uart_termios->c_cflag | PARODD;
-        uart_termios->c_cflag = uart_termios->c_cflag ^ (~CMSPAR); 
+        uart_termios->c_cflag = uart_termios->c_cflag & (~PARODD);
+        uart_termios->c_cflag = uart_termios->c_cflag | CMSPAR; 
     }
     else {
         printf("Parity bit type: %s is unrecognized\n", optarg);
