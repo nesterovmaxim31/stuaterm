@@ -1,0 +1,53 @@
+.\" Man page for stuaterm (just so I can remember, what was done)
+.\" Thanks to this page:
+.\" https://www.golinuxcloud.com/create-man-page-template-linux-with-examples/
+.TH stuaterm 1 "August 2026" "stuaterm 0.1" "User commands"
+.SH NAME
+stuaterm - stupid uart terminal
+
+.SH SYNOPSIS
+.SY stuaterm
+DEVICE [OPTIONS]
+.YS
+
+.SH DESCRIPTION
+stuaterm is a very simple program which allow to communicate with
+serial devices with support for 5 type of parity bit {none, odd, even,
+mark, space}, 2 type of stop bit {one, two}, support for replacing
+newline and carriage return characters in user-input and device-output.
+See section EXAMPLES for simple cases, that you likely is looking for.
+
+.SH OPTIONS
+.TP
+.B \-c, \-\-config=PATH
+Path to config file.
+.TP
+.B \-s, \-\-speed=SPEED
+Baud rate for terminal
+.TP
+.B \-b, \-\-stopbit=one/two
+Type of stop bit. Available options: {one, two}.
+.TP
+.B \-p, \-\-paritybit={none, odd, even, mark, space}
+Type of parity bit. Available options: {none, odd, even, mark, space}.
+.TP
+.B \-d, \-\-databits={5,6,7,8}
+Size of frame.
+.TP
+.B \-i, \-\-inputparitycheck={disable, enable_ignore, enable_mark}
+disable - no parity check is done at all;
+enable_ignore -
+enable_mark -
+
+.SH CONFIG FILE
+
+.SH EXAMPLES
+
+.SH REPORTING BUGS
+maxgoonfuture@gmail.com
+
+.SH COPYRIGHT
+Copyright (c) 2026 Maksim Nesterov
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, version 3.
