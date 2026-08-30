@@ -20,10 +20,16 @@ See section EXAMPLES for simple cases, that you likely is looking for.
 .SH OPTIONS
 .TP
 .B \-c, \-\-config=PATH
-Path to config file.
+Path to config file. It's dangerous to use this options with others.
+If no options was passed at all, stuaterm tries to open config file on
+standart places:
+~/.config/.stuaterm.conf
+~/.stuaterm.conf
 .TP
 .B \-s, \-\-speed=SPEED
-Baud rate for terminal
+Baud rate for terminal. In current moment supported following values:
+0, 50, 75, 110, 134, 150, 200, 300, 600, 1200, 1800, 2400, 4800, 9600,
+19200, 38400. Set input and output baud rate.
 .TP
 .B \-b, \-\-stopbit=one/two
 Type of stop bit. Available options: {one, two}.

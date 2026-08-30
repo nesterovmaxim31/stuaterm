@@ -31,11 +31,33 @@ static void restore_terms_settings_and_die(int ret);
 
 #define BUF_SIZE 512
 #define POLL_TIMEOUT 100 /* in milliseconds */
+#define ENTRYSIZE 64
+#define ENTRYSIZE_ST ENTRYSIZE + 1 /* we need \0 in the end */
+static struct termios uart_termios_old;
+static struct {
+    char* path; /* NULL (default) */
+    char speed[ENTRYSIZE_ST]; /* "9600" (default) */
+    char stopbit[ENTRYSIZE_ST]; /* "one" (default), "two" */
+    char paritybit[ENTRYSIZE_ST]; /* "none" (default), "odd", "even",
+                       "mark", "space" */
+    char databits[ENTRYSIZE_ST]; /* "5", "6", "7", "8" (default) */
+    char inputparitycheck[ENTRYSIZE_ST]; /* "disable" (default),
+                              "enable_ignore", "enable_mark" */
+    char replacenluser[ENTRYSIZE_ST]; /* "" (default) */
+    char replacenldevice[ENTRYSIZE_ST]; /* "" (default) */
+    char replacecruser[ENTRYSIZE_ST]; /* "" (default) */
+    char replacecrdevice[ENTRYSIZE_ST]; /* "" (default) */
+} arguments;
+/* Should be checked bytes from device on errors marks
+   (inputparitycheck = enable_mark) */
+static int flag_check_parity_error;
 
 static void main_loop() {
     struct pollfd fds[2];
-    char buf[BUF_SIZE], c, r = '\r';
+    char b, c, r = '\r';
     int pollret, ret;
+    int first_error_byte = 0, second_error_byte = 0;
+    
 
     /* fds[0] - for stdin */
     /* fds[1] - for uart */
@@ -78,13 +100,31 @@ static void main_loop() {
                 restore_terms_settings_and_die(ret);
             }
             
-            ret = read(uart_fd, buf, BUF_SIZE);
+            ret = read(uart_fd, &b, 1);
             if (ret == -1) {
                 perror("read from uart failed");
                 restore_terms_settings_and_die(ret);
             }
+
+            /* Handle marked byte with parity error */
+            if (flag_check_parity_error == 1) {
+                if (first_error_byte == 0 && b == 377 )
+                    first_error_byte = 1;
+                else if (first_error_byte == 1 &&
+                         second_error_byte == 0 &&
+                         b == 0)
+                    second_error_byte = 1;
+                else if (first_error_byte == 1 &&
+                        second_error_byte == 1)
+                    printf("parity or framing error is detected!\n");
+
+                else {
+                    first_error_byte = 0;
+                    second_error_byte = 0;
+                }
+            }
             
-            ret = write(STDOUT_FILENO, buf, ret);
+            ret = write(STDOUT_FILENO, &b, 1);
             if (ret == -1) {
                 perror("write to stdout failed");
                 restore_terms_settings_and_die(ret);
@@ -127,20 +167,6 @@ static int prepare_stdin() {
     return ret;
 }
 
-static struct termios uart_termios_old;
-static void prepare_uart(struct termios* uart_termios) {
-    int ret;
-
-    uart_termios->c_cc[VTIME] = 0;
-    uart_termios->c_cc[VMIN] = 0;
-
-    ret = tcsetattr(uart_fd, TCSANOW, uart_termios);
-    if (ret == -1) {
-        perror("tcsetattr failed on uart");
-        restore_terms_settings_and_die(ret);
-    }
-}
-
 static void restore_terms_settings_and_die(int ret) {
     tcsetattr(STDIN_FILENO, TCSANOW, &stdin_old);
 
@@ -159,6 +185,8 @@ static int open_uart(const char* path) {
         printf("Failed to open: %s", path);
         return -1;
     }
+
+    return 0;
 }
 
 static void sigint_handler(int sign) {
@@ -355,6 +383,36 @@ static void set_databits(struct termios* uart_termios,
     }
 }
 
+/*
+  disable - no parity checking is done at all on input frames
+  enable_ignore - any bytes with framing or parity error are ignored
+  enable_mark - any bytes with framing or parity error are marked
+  with preceding bytes '377' and '0' (This should be checked in main
+  loop). (ISTRIP is not used at all)
+ */
+static void set_inputparitycheck(struct termios* uart_termios,
+                                 const char* optarg) {
+    if (strcmp("disable", optarg) == 0) {
+        uart_termios->c_iflag = uart_termios->c_iflag & (~INPCK);
+    }
+    else if (strcmp("enable_ignore", optarg) == 0) {
+        uart_termios->c_iflag = uart_termios->c_iflag | INPCK;
+        uart_termios->c_iflag = uart_termios->c_iflag | IGNPAR;
+        uart_termios->c_iflag = uart_termios->c_iflag & (~PARMRK);
+    }
+    else if (strcmp("enable_mark", optarg) == 0) {
+        uart_termios->c_iflag = uart_termios->c_iflag | INPCK;
+        uart_termios->c_iflag = uart_termios->c_iflag & (~IGNPAR);
+        uart_termios->c_iflag = uart_termios->c_iflag | PARMRK;
+
+        flag_check_parity_error = 1;
+    }
+    else {
+        /* TODO: add available options */
+        printf("inputparitycheck option: %s is unrecognized\n",
+               optarg);
+    }
+}
 /* Find symbol #, and everythings after this symbol is erased
    (# is replaced with \0)
 */
@@ -420,16 +478,19 @@ static int parse_config_file(struct termios* uart_termios,
             }            
 
             if (strcmp(key, "speed") == 0) {
-                set_speed(uart_termios, value);
+                strncpy(arguments.speed, value, ENTRYSIZE);
             }
             else if (strcmp(key, "stopbit") == 0) {
-                set_stopbit(uart_termios, value);
+                strncpy(arguments.stopbit, value, ENTRYSIZE);
             }
             else if (strcmp(key, "paritybit") == 0) {
-                set_paritybit(uart_termios, value);
+                strncpy(arguments.paritybit, value, ENTRYSIZE);
             }
             else if (strcmp(key, "databits") == 0) {
-                set_databits(uart_termios, value);
+                strncpy(arguments.databits, value, ENTRYSIZE);
+            }
+            else if (strcmp(key, "inputparitycheck") == 0) {
+                strncpy(arguments.inputparitycheck, value, ENTRYSIZE);
             }
         } while (line_size != -1);
 
@@ -441,27 +502,54 @@ static int parse_config_file(struct termios* uart_termios,
     return 0;
 }
 
+/* Set on serial device settings from 'arguments' */
+static void prepare_uart(struct termios* uart_termios) {
+    int ret;
+
+    /* If user's file doesn't exist -> exit with error  */
+    ret = parse_config_file(uart_termios, arguments.path);
+    if (ret == -1) {
+        printf("File: %s doesn't exist", arguments.path);
+        restore_terms_settings_and_die(-1);
+    }
+
+    set_speed(uart_termios, arguments.speed);
+    set_stopbit(uart_termios, arguments.stopbit);
+    set_paritybit(uart_termios, arguments.paritybit);
+    set_databits(uart_termios, arguments.databits);
+    set_inputparitycheck(uart_termios, arguments.inputparitycheck);
+    
+    uart_termios->c_cc[VTIME] = 0;
+    uart_termios->c_cc[VMIN] = 0;
+
+    /* setting settings */
+    ret = tcsetattr(uart_fd, TCSANOW, uart_termios);
+    if (ret == -1) {
+        perror("tcsetattr failed on uart");
+        restore_terms_settings_and_die(ret);
+    }
+}
+
 /*
-  Arguments:
+  Arguments (options, everyone name it how he wants):
   --config           (-c) (path to config file)
   --speed            (-s) (see libc for available values)
   --stopbit          (-b) (one, two)
   --paritybit        (-p) (none, odd, even, mark, space)
   --databits         (-d) (5, 6, 7, 8)
   --inputparitycheck (-i) (disable, enable_ignore, enable_mark)
-  --replacenlinput   (-n) (some set of character, for example - \r\n)
-  --replacenloutput  (-o) (some set of character)
-  --replacecrinput   (-r) (some set of character)
-  --replacecroutput  (-t) (some set of character)
+  --replacenluser    (-n) (some set of character, for example - \r\n)
+  --replacenldevice  (-o) (some set of character)
+  --replacecruser    (-r) (some set of character)
+  --replacecrdevice  (-t) (some set of character)
 
   return:
   -1 - no arguments was provied (so we try to open config files on
   standart place)
   0 - some arguments was provided
  */
-static int parse_args(const int argc, char** argv,
-                       struct termios* uart_termios) {
-    int opt, ret, flag = 0, l;
+static int parse_args(const int argc, char** argv) {
+    int opt, flag = 0, l;
 
     static struct option long_options[] = {
         {"config",           required_argument, NULL, 'c'},
@@ -469,6 +557,7 @@ static int parse_args(const int argc, char** argv,
         {"stopbit",          required_argument, NULL, 'b'},
         {"paritybit",        required_argument, NULL, 'p'},
         {"databits",         required_argument, NULL, 'd'},
+        {"inputparitycheck", required_argument, NULL, 'i'},
         {0, 0, 0, 0}
     };
 
@@ -480,26 +569,27 @@ static int parse_args(const int argc, char** argv,
 
         switch (opt) {
         case 'c':
-            /* If user's file doesn't exist -> exit with error  */
-            ret = parse_config_file(uart_termios, optarg);
-            if (ret == -1) {
-                printf("File: %s doesn't exist", optarg);
-                restore_terms_settings_and_die(-1);
-            }
+            arguments.path = optarg;
             break;
+
         case 's':
-            set_speed(uart_termios, optarg);
+            strncpy(arguments.speed, optarg, ENTRYSIZE);
             break;
 
         case 'b':
-            set_stopbit(uart_termios, optarg);
+            strncpy(arguments.stopbit, optarg, ENTRYSIZE);
             break;
 
         case 'p':
-            set_paritybit(uart_termios, optarg);
+            strncpy(arguments.paritybit, optarg, ENTRYSIZE);
             break;
+
         case 'd':
-            set_databits(uart_termios, optarg);
+            strncpy(arguments.databits, optarg, ENTRYSIZE);
+            break;
+
+        case 'i':
+            strncpy(arguments.inputparitycheck, optarg, ENTRYSIZE);
             break;
         }
     }
@@ -523,6 +613,8 @@ int main(int argc, char** argv) {
     int ret;
     
     uart_fd = -1;
+
+    flag_check_parity_error = 0;
  
     /* open test */
     if (argc < 2) {
@@ -547,7 +639,7 @@ int main(int argc, char** argv) {
         restore_terms_settings_and_die(-1);
     }
 
-    /* Set term settings */
+    /* Save term settings */
     ret = tcgetattr(uart_fd, &uart_termios_old);
     if (ret == -1) {
         perror("tcgetattr failed on uart");
@@ -556,10 +648,22 @@ int main(int argc, char** argv) {
 
     uart_termios = uart_termios_old;
 
-    /* Clear all settings */
+    /* Clear all settings before setting new */
     cfmakeraw(&uart_termios);
 
-    ret = parse_args(argc, argv, &uart_termios);
+    /* Setting default values for arguments */
+    arguments.path = NULL;
+    strcpy(arguments.speed, "9600");
+    strcpy(arguments.stopbit, "one");
+    strcpy(arguments.paritybit, "none");
+    strcpy(arguments.databits, "8");
+    strcpy(arguments.inputparitycheck, "disable");
+    strcpy(arguments.replacenluser, "");
+    strcpy(arguments.replacenldevice, "");
+    strcpy(arguments.replacecruser, "");
+    strcpy(arguments.replacecrdevice, "");
+    
+    ret = parse_args(argc, argv);
     printf("parsed %d\n", ret);
     if (ret == -1) {/* No arguments was provided, so try to open
                       some standart config files */
