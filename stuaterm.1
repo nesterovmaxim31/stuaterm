@@ -44,6 +44,16 @@ Size of frame.
 disable - no parity check is done at all;
 enable_ignore -
 enable_mark -
+.TP
+.B \-n, \-\-replacenluser=REPLACE_CHARACTERS
+Replace every new line character, that is typed by user, to specified
+character (or characters). For example, for replace every \\n
+character type by user on \\n\\r use: --replacenluser=\\\\n\\\\r. By
+default new line character is sent to device unmodified.
+.TP
+.B \-o, \-\-replacenldevice=REPLACE_CHARACTERS
+Replace every new line character, that is read from device, to
+specified character (or characters). 
 
 .SH CONFIG FILE
 

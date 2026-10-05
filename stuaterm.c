@@ -27,12 +27,12 @@
 #include <getopt.h>
 
 static int uart_fd;
-static void restore_terms_settings_and_die(int ret);
 
 #define BUF_SIZE 512
 #define POLL_TIMEOUT 100 /* in milliseconds */
 #define ENTRYSIZE 64
-#define ENTRYSIZE_ST ENTRYSIZE + 1 /* we need \0 in the end */
+#define ENTRYSIZE_ST (ENTRYSIZE + 1) /* we need \0 in the end */
+static struct termios stdin_old;
 static struct termios uart_termios_old;
 static struct {
     char* path; /* NULL (default) */
@@ -52,6 +52,17 @@ static struct {
    (inputparitycheck = enable_mark) */
 static int flag_check_parity_error;
 
+static void restore_terms_settings_and_die(int ret) {
+    tcsetattr(STDIN_FILENO, TCSANOW, &stdin_old);
+
+    if (uart_fd != -1) {
+        tcsetattr(uart_fd, TCSANOW, &uart_termios_old);
+        close(uart_fd);
+    }
+
+    _exit(ret);
+}
+
 static void main_loop() {
     struct pollfd fds[2];
     char b, c, r = '\r';
@@ -61,7 +72,7 @@ static void main_loop() {
 
     /* fds[0] - for stdin */
     /* fds[1] - for uart */
-    fds[0].fd = STDOUT_FILENO;
+    fds[0].fd = STDIN_FILENO;
     fds[0].events = POLLIN;
 
     fds[1].fd = uart_fd;
@@ -108,7 +119,7 @@ static void main_loop() {
 
             /* Handle marked byte with parity error */
             if (flag_check_parity_error == 1) {
-                if (first_error_byte == 0 && b == 377 )
+                if (first_error_byte == 0 && b == 0xFF)
                     first_error_byte = 1;
                 else if (first_error_byte == 1 &&
                          second_error_byte == 0 &&
@@ -137,8 +148,7 @@ static void main_loop() {
   Disable canonical mode for input pseudoterminal,
   so we can read character as soon as they are typed
  */
-static struct termios stdin_old;
-static int prepare_stdin() {
+static void prepare_stdin() {
     struct termios stdin_new;
     int ret;
     
@@ -163,30 +173,19 @@ static int prepare_stdin() {
         perror("STDIN preparation failed");
         restore_terms_settings_and_die(-1);
     }
-
-    return ret;
-}
-
-static void restore_terms_settings_and_die(int ret) {
-    tcsetattr(STDIN_FILENO, TCSANOW, &stdin_old);
-
-    if (uart_fd != -1) {
-        tcsetattr(uart_fd, TCSANOW, &uart_termios_old);
-        close(uart_fd);
-    }
-
-    _exit(ret);
 }
 
 static int open_uart(const char* path) {
-    uart_fd = open(path, O_RDWR | O_NOCTTY | O_NDELAY | O_NONBLOCK);
+    int ret;
 
-    if (uart_fd == -1) {
+    ret = open(path, O_RDWR | O_NOCTTY | O_NDELAY | O_NONBLOCK);
+
+    if (ret == -1) {
         printf("Failed to open: %s", path);
         return -1;
     }
 
-    return 0;
+    return ret;
 }
 
 static void sigint_handler(int sign) {
@@ -558,12 +557,14 @@ static int parse_args(const int argc, char** argv) {
         {"paritybit",        required_argument, NULL, 'p'},
         {"databits",         required_argument, NULL, 'd'},
         {"inputparitycheck", required_argument, NULL, 'i'},
+        {"replacenluser",    required_argument, NULL, 'n'},
+        {"replacenldevice",  required_argument, NULL, 'o'},
         {0, 0, 0, 0}
     };
 
     /* We believe that getopt_long checked, that optarg is given by
        user (in long_optiongs 'required_argument' is used) */
-    while ((opt = getopt_long(argc, argv, "c:s:b:p:", long_options,
+    while ((opt = getopt_long(argc, argv, "c:s:b:p:d:i:n:o:", long_options,
                               &l)) != -1) {
         flag = 1; /* So we get some argument */
 
@@ -591,6 +592,15 @@ static int parse_args(const int argc, char** argv) {
         case 'i':
             strncpy(arguments.inputparitycheck, optarg, ENTRYSIZE);
             break;
+
+        case 'n':
+            strncpy(arguments.replacenluser, optarg, ENTRYSIZE);
+            break;
+
+        case 'o':
+            strncpy(arguments.replacenldevice, optarg, ENTRYSIZE);
+            break;
+
         }
     }
 
@@ -605,8 +615,8 @@ static int parse_args(const int argc, char** argv) {
 
   Secondly, if no arguments are provided at all, we try to open
   config files on standart places:
-  ~/.config/.stuaterm.conf
-  ~/.stuaterm.conf
+  1. stuaterm.conf (cwd)
+  2. /etc/stuaterm.conf
 */
 int main(int argc, char** argv) {
     struct termios uart_termios;
@@ -667,11 +677,11 @@ int main(int argc, char** argv) {
     printf("parsed %d\n", ret);
     if (ret == -1) {/* No arguments was provided, so try to open
                       some standart config files */
-        ret = parse_config_file(&uart_termios, "~/.config/.stuaterm.conf");
+        ret = parse_config_file(&uart_termios, "stuaterm.conf");
         if (ret == -1) { /* Try another place */
-            ret = parse_config_file(&uart_termios, "~/.stuaterm.conf");
+            ret = parse_config_file(&uart_termios, "/etc/stuaterm.conf");
             if (ret == -1) {
-                printf("No config arguments were provide. stuaterm will \
+                puts("No config arguments were provide. stuaterm will \
  works with current settings on uart device. (You can check them with stty)");
             }
         }
@@ -681,11 +691,3 @@ int main(int argc, char** argv) {
 
     main_loop();
 }
-
-/*
-  TODO:
-  1) man page
-  2) Some build system (nob for example)
-  3) Add README
-  4) Add frame size parametre and some other.
-*/
