@@ -119,16 +119,36 @@ static void main_loop() {
 
             /* Handle marked byte with parity error */
             if (flag_check_parity_error == 1) {
-                if (first_error_byte == 0 && b == 0xFF)
+                if (first_error_byte == 0 && b == 0xFF) {
                     first_error_byte = 1;
+                    continue;
+                }
                 else if (first_error_byte == 1 &&
                          second_error_byte == 0 &&
-                         b == 0)
+                         b == 0) {
                     second_error_byte = 1;
+                    continue;
+                }
                 else if (first_error_byte == 1 &&
-                        second_error_byte == 1)
-                    printf("parity or framing error is detected!\n");
+                         second_error_byte == 0 &&
+                         b != 0) {
+                    first_error_byte = 0;
+                    continue;
+                }
 
+                else if (first_error_byte == 1 &&
+                         second_error_byte == 1) {
+                    printf("parity or framing error is detected!\nBroken received byte: ");
+                    ret = write(STDOUT_FILENO, &b, 1);
+                    if (ret == -1) {
+                        perror("write to stdout failed");
+                        restore_terms_settings_and_die(ret);
+                    }       
+
+                    first_error_byte = 0;
+                    second_error_byte = 0;
+                    continue;
+                }
                 else {
                     first_error_byte = 0;
                     second_error_byte = 0;
