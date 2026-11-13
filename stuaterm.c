@@ -526,10 +526,12 @@ static void prepare_uart(struct termios* uart_termios) {
     int ret;
 
     /* If user's file doesn't exist -> exit with error  */
-    ret = parse_config_file(uart_termios, arguments.path);
-    if (ret == -1) {
-        printf("File: %s doesn't exist", arguments.path);
-        restore_terms_settings_and_die(-1);
+    if (arguments.path != NULL) {/* If '--config' option was used */
+        ret = parse_config_file(uart_termios, arguments.path);
+        if (ret == -1) {
+            printf("File: %s doesn't exist", arguments.path);
+            restore_terms_settings_and_die(-1);
+        }
     }
 
     set_speed(uart_termios, arguments.speed);
@@ -549,6 +551,19 @@ static void prepare_uart(struct termios* uart_termios) {
     }
 }
 
+static void print_uart_settings() {
+    puts("uart terminal is successfully configured:");
+    printf("speed: %s\n", arguments.speed);
+    printf("parity bit: %s\n", arguments.paritybit);
+    printf("data bits: %s\n", arguments.databits);
+    printf("input parity check: %s\n", arguments.inputparitycheck);
+    
+    /* char replacenluser[ENTRYSIZE_ST]; /\* "" (default) *\/ */
+    /* char replacenldevice[ENTRYSIZE_ST]; /\* "" (default) *\/ */
+    /* char replacecruser[ENTRYSIZE_ST]; /\* "" (default) *\/ */
+    /* char replacecrdevice[ENTRYSIZE_ST]; /\* "" (default) *\/ */
+}
+
 /*
   Arguments (options, everyone name it how he wants):
   --config           (-c) (path to config file)
@@ -561,6 +576,7 @@ static void prepare_uart(struct termios* uart_termios) {
   --replacenldevice  (-o) (some set of character)
   --replacecruser    (-r) (some set of character)
   --replacecrdevice  (-t) (some set of character)
+  
 
   return:
   -1 - no arguments was provied (so we try to open config files on
@@ -646,7 +662,6 @@ int main(int argc, char** argv) {
 
     flag_check_parity_error = 0;
  
-    /* open test */
     if (argc < 2) {
         puts("No terminal name specified");
         return -1;
@@ -694,7 +709,7 @@ int main(int argc, char** argv) {
     strcpy(arguments.replacecrdevice, "");
     
     ret = parse_args(argc, argv);
-    printf("parsed %d\n", ret);
+
     if (ret == -1) {/* No arguments was provided, so try to open
                       some standart config files */
         ret = parse_config_file(&uart_termios, "stuaterm.conf");
@@ -704,10 +719,16 @@ int main(int argc, char** argv) {
                 puts("No config arguments were provide. stuaterm will \
  works with current settings on uart device. (You can check them with stty)");
             }
+            else
+                puts("Parsing config file: /etc/stuaterm.conf");
         }
+        else
+            puts("Parsing config file: ./stuaterm.conf");
     }
 
     prepare_uart(&uart_termios);
+
+    print_uart_settings();
 
     main_loop();
 }
