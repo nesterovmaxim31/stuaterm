@@ -1,17 +1,17 @@
-/* 
+/*
  * This file is part of the stuaterm (https://github.com/).
  * Copyright (c) 2026 Maksim Nesterov.
- * 
- * This program is free software: you can redistribute it and/or modify  
- * it under the terms of the GNU General Public License as published by  
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation, version 3.
  *
- * This program is distributed in the hope that it will be useful, but 
- * WITHOUT ANY WARRANTY; without even the implied warranty of 
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU 
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
  * General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License 
+ * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
@@ -35,7 +35,8 @@ static int uart_fd;
 static struct termios stdin_old;
 static struct termios uart_termios_old;
 static struct {
-    char* path; /* NULL (default) */
+    char* uart_path;
+    char* config_file_path; /* NULL (default) */
     char speed[ENTRYSIZE_ST]; /* "9600" (default) */
     char stopbit[ENTRYSIZE_ST]; /* "one" (default), "two" */
     char paritybit[ENTRYSIZE_ST]; /* "none" (default), "odd", "even",
@@ -68,7 +69,7 @@ static void main_loop() {
     char b, c, r = '\r';
     int pollret, ret;
     int first_error_byte = 0, second_error_byte = 0;
-    
+
 
     /* fds[0] - for stdin */
     /* fds[1] - for uart */
@@ -110,7 +111,7 @@ static void main_loop() {
                 perror("uart is broken or disconnected");
                 restore_terms_settings_and_die(ret);
             }
-            
+
             ret = read(uart_fd, &b, 1);
             if (ret == -1) {
                 perror("read from uart failed");
@@ -143,7 +144,7 @@ static void main_loop() {
                     if (ret == -1) {
                         perror("write to stdout failed");
                         restore_terms_settings_and_die(ret);
-                    }       
+                    }
 
                     first_error_byte = 0;
                     second_error_byte = 0;
@@ -154,7 +155,7 @@ static void main_loop() {
                     second_error_byte = 0;
                 }
             }
-            
+
             ret = write(STDOUT_FILENO, &b, 1);
             if (ret == -1) {
                 perror("write to stdout failed");
@@ -171,7 +172,7 @@ static void main_loop() {
 static void prepare_stdin() {
     struct termios stdin_new;
     int ret;
-    
+
     ret = tcgetattr(STDIN_FILENO, &stdin_old);
     if (ret != 0) {
         perror("STDIN preparation failed");
@@ -185,7 +186,7 @@ static void prepare_stdin() {
       Immediately grub any available symbol to process it
       (see 'info libc' for uncanonical mode)
      */
-    stdin_new.c_cc[VTIME] = 0; 
+    stdin_new.c_cc[VTIME] = 0;
     stdin_new.c_cc[VMIN] = 0;
 
     ret = tcsetattr(STDIN_FILENO, TCSANOW, &stdin_new);
@@ -222,7 +223,7 @@ static void register_sigint_handler() {
     if (sigaction(SIGINT, &sa, NULL) == -1) {
         perror("Failed to register Ctrl-C handler");
         _exit(-1);
-    }        
+    }
 }
 
 /* Parse speed value from optarg or config file and set value in
@@ -339,28 +340,28 @@ static void set_paritybit(struct termios* uart_termios,
         uart_termios->c_cflag = uart_termios->c_cflag | PARENB;
         uart_termios->c_cflag = uart_termios->c_cflag | PARODD;
         /* disable stick parity bit */
-        uart_termios->c_cflag = uart_termios->c_cflag & (~CMSPAR); 
+        uart_termios->c_cflag = uart_termios->c_cflag & (~CMSPAR);
     }
     else if (strncmp("even", optarg, 4) == 0) {
         uart_termios->c_cflag = uart_termios->c_cflag | PARENB;
         uart_termios->c_cflag = uart_termios->c_cflag & (~PARODD);
-        uart_termios->c_cflag = uart_termios->c_cflag & (~CMSPAR); 
+        uart_termios->c_cflag = uart_termios->c_cflag & (~CMSPAR);
     }
     /* If CMSPAR is set, than mark parity is used */
     else if (strncmp("mark", optarg, 4) == 0) {
         uart_termios->c_cflag = uart_termios->c_cflag | PARENB;
         uart_termios->c_cflag = uart_termios->c_cflag | PARODD;
-        uart_termios->c_cflag = uart_termios->c_cflag | CMSPAR; 
+        uart_termios->c_cflag = uart_termios->c_cflag | CMSPAR;
     }
     else if (strncmp("space", optarg, 5) == 0) {
         uart_termios->c_cflag = uart_termios->c_cflag | PARENB;
         uart_termios->c_cflag = uart_termios->c_cflag & (~PARODD);
-        uart_termios->c_cflag = uart_termios->c_cflag | CMSPAR; 
+        uart_termios->c_cflag = uart_termios->c_cflag | CMSPAR;
     }
     else {
         printf("Parity bit type: %s is unrecognized\n", optarg);
         restore_terms_settings_and_die(-1);
-    }    
+    }
 }
 
 /* Set amount of data bits in frame: 5, 6, 7 or 8 bits.
@@ -453,8 +454,7 @@ static void erase_comments(char* line) {
   If function return -1, then file doesn't exist. If some other error
   with parsing or file opening function calls restore_terms_settings_and_die
 */
-static int parse_config_file(struct termios* uart_termios,
-                             const char* path) {
+static int parse_config_file(const char* path) {
     FILE* f; /* I so hate this ugly F I L E */
     char* line = NULL, *saveptr, *key, *value;
     ssize_t line_size;
@@ -494,7 +494,7 @@ static int parse_config_file(struct termios* uart_termios,
                 printf("No value is set in config file for key '%s'\n", key);
                 free(line);
                 restore_terms_settings_and_die(-1);
-            }            
+            }
 
             if (strcmp(key, "speed") == 0) {
                 strncpy(arguments.speed, value, ENTRYSIZE);
@@ -517,34 +517,69 @@ static int parse_config_file(struct termios* uart_termios,
     }
 
     fclose(f);
-    
+
     return 0;
 }
 
 /* Set on serial device settings from 'arguments' */
-static void prepare_uart(struct termios* uart_termios) {
+static void prepare_uart() {
+    struct termios uart_termios;
     int ret;
 
+    uart_fd = -1;
+
+    if (arguments.uart_path != NULL)
+        uart_fd = open_uart(arguments.uart_path);
+    else {
+        perror("No device path is specified");
+        restore_terms_settings_and_die(-1);
+    }
+
+    if (uart_fd == -1) {
+        printf("Failed to open: %s", arguments.uart_path);
+        restore_terms_settings_and_die(-1);
+    }
+    else
+        printf("%s opened successfully\n------------------\n",
+               arguments.uart_path);
+
+    if (!isatty(uart_fd)) {
+        printf("%s isn't refered to a terminal", arguments.uart_path);
+        restore_terms_settings_and_die(-1);
+    }
+
+    /* Save term settings */
+    ret = tcgetattr(uart_fd, &uart_termios_old);
+    if (ret == -1) {
+        perror("tcgetattr failed on uart");
+        restore_terms_settings_and_die(ret);
+    }
+
+    uart_termios = uart_termios_old;
+
+    /* Clear all settings before setting new */
+    cfmakeraw(&uart_termios);
+
     /* If user's file doesn't exist -> exit with error  */
-    if (arguments.path != NULL) {/* If '--config' option was used */
-        ret = parse_config_file(uart_termios, arguments.path);
+    if (arguments.uart_path != NULL) {/* If '--config' option was used */
+        ret = parse_config_file(arguments.uart_path);
         if (ret == -1) {
-            printf("File: %s doesn't exist", arguments.path);
+            printf("File: %s doesn't exist", arguments.uart_path);
             restore_terms_settings_and_die(-1);
         }
     }
 
-    set_speed(uart_termios, arguments.speed);
-    set_stopbit(uart_termios, arguments.stopbit);
-    set_paritybit(uart_termios, arguments.paritybit);
-    set_databits(uart_termios, arguments.databits);
-    set_inputparitycheck(uart_termios, arguments.inputparitycheck);
-    
-    uart_termios->c_cc[VTIME] = 0;
-    uart_termios->c_cc[VMIN] = 0;
+    set_speed(&uart_termios, arguments.speed);
+    set_stopbit(&uart_termios, arguments.stopbit);
+    set_paritybit(&uart_termios, arguments.paritybit);
+    set_databits(&uart_termios, arguments.databits);
+    set_inputparitycheck(&uart_termios, arguments.inputparitycheck);
+
+    uart_termios.c_cc[VTIME] = 0;
+    uart_termios.c_cc[VMIN] = 0;
 
     /* setting settings */
-    ret = tcsetattr(uart_fd, TCSANOW, uart_termios);
+    ret = tcsetattr(uart_fd, TCSANOW, &uart_termios);
     if (ret == -1) {
         perror("tcsetattr failed on uart");
         restore_terms_settings_and_die(ret);
@@ -552,12 +587,13 @@ static void prepare_uart(struct termios* uart_termios) {
 }
 
 static void print_uart_settings() {
-    puts("uart terminal is successfully configured:");
+    puts("stuaterm is successfully configured:");
+    printf("device path: %s\n", arguments.uart_path);
     printf("speed: %s\n", arguments.speed);
     printf("parity bit: %s\n", arguments.paritybit);
     printf("data bits: %s\n", arguments.databits);
     printf("input parity check: %s\n", arguments.inputparitycheck);
-    
+
     /* char replacenluser[ENTRYSIZE_ST]; /\* "" (default) *\/ */
     /* char replacenldevice[ENTRYSIZE_ST]; /\* "" (default) *\/ */
     /* char replacecruser[ENTRYSIZE_ST]; /\* "" (default) *\/ */
@@ -576,7 +612,7 @@ static void print_uart_settings() {
   --replacenldevice  (-o) (some set of character)
   --replacecruser    (-r) (some set of character)
   --replacecrdevice  (-t) (some set of character)
-  
+
 
   return:
   -1 - no arguments was provied (so we try to open config files on
@@ -606,7 +642,7 @@ static int parse_args(const int argc, char** argv) {
 
         switch (opt) {
         case 'c':
-            arguments.path = optarg;
+            arguments.uart_path = optarg;
             break;
 
         case 's':
@@ -643,6 +679,49 @@ static int parse_args(const int argc, char** argv) {
     return flag ? 0 : -1;
 }
 
+static void handle_args_and_config_file(int argc, char** argv) {
+    int ret;
+
+    flag_check_parity_error = 0;
+
+    if (argc < 2) {
+        perror("No device path is specified (should looks like\
+/dev/USB0). See -h option or man page for help");
+    }
+    else
+        arguments.uart_path = argv[1];
+
+    arguments.config_file_path = NULL;
+    strcpy(arguments.speed, "9600");
+    strcpy(arguments.stopbit, "one");
+    strcpy(arguments.paritybit, "none");
+    strcpy(arguments.databits, "8");
+    strcpy(arguments.inputparitycheck, "disable");
+    strcpy(arguments.replacenluser, "");
+    strcpy(arguments.replacenldevice, "");
+    strcpy(arguments.replacecruser, "");
+    strcpy(arguments.replacecrdevice, "");
+
+    ret = parse_args(argc, argv);
+
+    if (ret == -1) {/* No arguments was provided, so try to open
+                      some standart config files */
+        ret = parse_config_file("stuaterm.conf");
+        if (ret == -1) { /* Try another place */
+            ret = parse_config_file("/etc/stuaterm.conf");
+            if (ret == -1) {
+                perror("No config arguments were provide. stuaterm will \
+ works with current settings on uart device. (You can check them with stty)");
+            }
+            else
+                puts("Parsing config file: /etc/stuaterm.conf");
+        }
+        else
+            puts("Parsing config file: ./stuaterm.conf");
+    }
+
+}
+
 /*
   Firstly of all we parse arguments, if we get -c then parse config file.
   If we have not enough arguments we use settings, that was installed
@@ -655,78 +734,13 @@ static int parse_args(const int argc, char** argv) {
   2. /etc/stuaterm.conf
 */
 int main(int argc, char** argv) {
-    struct termios uart_termios;
-    int ret;
-    
-    uart_fd = -1;
-
-    flag_check_parity_error = 0;
- 
-    if (argc < 2) {
-        puts("No terminal name specified");
-        return -1;
-    }
-
     register_sigint_handler();
+
+    handle_args_and_config_file(argc, argv);
 
     prepare_stdin();
 
-    uart_fd = open_uart(argv[1]);
-    if (uart_fd == -1) {
-        printf("Failed to open: %s", argv[1]);
-        return -1;
-    }
-    else
-        printf("%s opened successfully\n------------------\n", argv[1]);
-    
-    if (!isatty(uart_fd)) {
-        printf("%s isn't refered to a terminal", argv[1]);
-        restore_terms_settings_and_die(-1);
-    }
-
-    /* Save term settings */
-    ret = tcgetattr(uart_fd, &uart_termios_old);
-    if (ret == -1) {
-        perror("tcgetattr failed on uart");
-        restore_terms_settings_and_die(ret);
-    }
-
-    uart_termios = uart_termios_old;
-
-    /* Clear all settings before setting new */
-    cfmakeraw(&uart_termios);
-
-    /* Setting default values for arguments */
-    arguments.path = NULL;
-    strcpy(arguments.speed, "9600");
-    strcpy(arguments.stopbit, "one");
-    strcpy(arguments.paritybit, "none");
-    strcpy(arguments.databits, "8");
-    strcpy(arguments.inputparitycheck, "disable");
-    strcpy(arguments.replacenluser, "");
-    strcpy(arguments.replacenldevice, "");
-    strcpy(arguments.replacecruser, "");
-    strcpy(arguments.replacecrdevice, "");
-    
-    ret = parse_args(argc, argv);
-
-    if (ret == -1) {/* No arguments was provided, so try to open
-                      some standart config files */
-        ret = parse_config_file(&uart_termios, "stuaterm.conf");
-        if (ret == -1) { /* Try another place */
-            ret = parse_config_file(&uart_termios, "/etc/stuaterm.conf");
-            if (ret == -1) {
-                puts("No config arguments were provide. stuaterm will \
- works with current settings on uart device. (You can check them with stty)");
-            }
-            else
-                puts("Parsing config file: /etc/stuaterm.conf");
-        }
-        else
-            puts("Parsing config file: ./stuaterm.conf");
-    }
-
-    prepare_uart(&uart_termios);
+    prepare_uart();
 
     print_uart_settings();
 
