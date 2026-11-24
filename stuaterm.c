@@ -561,10 +561,10 @@ static void prepare_uart() {
     cfmakeraw(&uart_termios);
 
     /* If user's file doesn't exist -> exit with error  */
-    if (arguments.uart_path != NULL) {/* If '--config' option was used */
-        ret = parse_config_file(arguments.uart_path);
+    if (arguments.config_file_path != NULL) {/* If '--config' option was used */
+        ret = parse_config_file(arguments.config_file_path);
         if (ret == -1) {
-            printf("File: %s doesn't exist", arguments.uart_path);
+            printf("File: %s doesn't exist", arguments.config_file_path);
             restore_terms_settings_and_die(-1);
         }
     }
@@ -642,7 +642,7 @@ static int parse_args(const int argc, char** argv) {
 
         switch (opt) {
         case 'c':
-            arguments.uart_path = optarg;
+            arguments.config_file_path = optarg;
             break;
 
         case 's':
